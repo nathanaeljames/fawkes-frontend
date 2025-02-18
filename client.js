@@ -75,6 +75,11 @@ function initWebSocket() {
     websocket.onmessage = function(e) {
       //console.log("message received: " + e.data);
       console.log(e.data);
+
+      if (typeof (e.data) === 'string') {
+        //console.log("Received text message");
+        document.getElementById("transcription").innerHTML += e.data + "<br>";
+      }
   
       try {
         result = JSON.parse(e.data);
@@ -88,6 +93,10 @@ function initWebSocket() {
       else {
         $('.message').html('Welcome!');
       }
+      /**if (typeof (result) === String) {
+        console.log("Received text message");
+        document.getElementById("transcription").innerHTML += result;
+      }*/
     }
 } // closes function initWebSocket()
 
