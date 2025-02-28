@@ -1,6 +1,7 @@
 //================= CONFIG =================
 // Global Variables
 let websocket_uri = 'ws://127.0.0.1:9001';
+//let websocket_uri = 'ws://172.16.0.17:9001';
 let bufferSize = 4096,
     AudioContext,
     context,
@@ -59,6 +60,7 @@ function initWebSocket() {
     // Create WebSocket
     websocket = new WebSocket(websocket_uri);
     //console.log("Websocket created...");
+    let currentTranscriptionDiv = null;
   
     // WebSocket Definitions: executed when triggered webSocketStatus
     websocket.onopen = function() {
@@ -72,32 +74,42 @@ function initWebSocket() {
       document.getElementById("webSocketStatus").innerHTML = 'Not Connected';
     }
     
-    websocket.onmessage = function(e) {
-      //console.log("message received: " + e.data);
+    websocket.onmessage = function (e) {
       console.log(e.data);
 
-      if (typeof (e.data) === 'string') {
-        //console.log("Received text message");
-        document.getElementById("transcription").innerHTML += e.data + "<br>";
+      if (typeof e.data === 'string') {
+        try {
+          let result = JSON.parse(e.data);  // Parse incoming JSON message
+
+          if (result.error) {
+            console.error("Error: " + result.error);
+            return;
+          }
+
+          let transcriptionContainer = document.getElementById("transcription");
+
+          // If we don't have a div yet, create one
+          if (!currentTranscriptionDiv) {
+            currentTranscriptionDiv = document.createElement("div");
+            console.log('created new transcription div awaiting initial speaker');
+            transcriptionContainer.appendChild(currentTranscriptionDiv);
+          }
+
+          // Update the current div with the latest transcription
+          currentTranscriptionDiv.innerHTML = result.speaker + ': ' + result.transcript;
+
+          // If "final" is true, create a new div for the next speaker
+          if (result.final) {
+            currentTranscriptionDiv = document.createElement("div");
+            console.log('created new transcription div awaiting next speaker');
+            transcriptionContainer.appendChild(currentTranscriptionDiv);
+          }
+
+        } catch (error) {
+          console.error("Error parsing JSON: " + error);
+        }
       }
-  
-      try {
-        result = JSON.parse(e.data);
-      }  catch (e) {
-        $('.message').html('Error retrieving data: ' + e);
-      }
-  
-      if (typeof(result) !== 'undefined' && typeof(result.error) !== 'undefined') {
-        $('.message').html('Error: ' + result.error);
-      }
-      else {
-        $('.message').html('Welcome!');
-      }
-      /**if (typeof (result) === String) {
-        console.log("Received text message");
-        document.getElementById("transcription").innerHTML += result;
-      }*/
-    }
+    };
 } // closes function initWebSocket()
 
 function downsampleBuffer (buffer, sampleRate, outSampleRate) {
