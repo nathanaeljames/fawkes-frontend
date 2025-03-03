@@ -8,54 +8,74 @@ let bufferSize = 4096,
     processor,
     input,
     globalStream,
-    websocket;
+    websocket,
+    isMicPaused = false; // Track microphone state;
 
 // Initialize WebSocket
 initWebSocket();
 
 //================= RECORDING =================
 function startRecording() {
-    streamStreaming = true;
-    AudioContext = window.AudioContext || window.webkitAudioContext;
-    context = new AudioContext({
-      // if Non-interactive, use 'playback' or 'balanced' // https://developer.mozilla.org/en-US/docs/Web/API/AudioContextLatencyCategory
-      latencyHint: 'interactive',
-    });
-    processor = context.createScriptProcessor(bufferSize, 1, 1);
-    processor.connect(context.destination);
-    context.resume();
-  
-    var handleSuccess = function (stream) {
+  if (globalStream) {
+    console.log("Resuming microphone...");
+    isMicPaused = false;
+    globalStream.getTracks().forEach(track => track.enabled = true); // Enable mic input
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    .then(stream => {
       globalStream = stream;
-      input = context.createMediaStreamSource(stream);
+      isMicPaused = false;
+
+      AudioContext = window.AudioContext || window.webkitAudioContext;
+      context = new AudioContext({ latencyHint: 'interactive' });
+      processor = context.createScriptProcessor(bufferSize, 1, 1);
+      processor.connect(context.destination);
+      context.resume();
+
+      input = context.createMediaStreamSource(globalStream);
       input.connect(processor);
-  
+
       processor.onaudioprocess = function (e) {
-        var left = e.inputBuffer.getChannelData(0);
-        var left16 = downsampleBuffer(left, 44100, 16000);
-        websocket.send(left16);
+        if (!isMicPaused) {
+          let left = e.inputBuffer.getChannelData(0);
+          let left16 = downsampleBuffer(left, 44100, 16000);
+          websocket.send(left16);
+        }
       };
-    };
-  
-    navigator.mediaDevices.getUserMedia({audio: true, video: false}).then(handleSuccess);
-} // closes function startRecording()
+    })
+    .catch(error => console.error("Microphone access error:", error));
+}
+
+function pauseRecording() {
+  if (globalStream) {
+    console.log("Pausing microphone...");
+    isMicPaused = true;
+    globalStream.getTracks().forEach(track => track.enabled = false); // Disable mic input
+  }
+}
 
 function stopRecording() {
-    streamStreaming = false;
-  
-    let track = globalStream.getTracks()[0];
-    track.stop();
-  
-    input.disconnect(processor);
-    processor.disconnect(context.destination);
-    context.close().then(function () {
+  if (globalStream) {
+    console.log("Stopping microphone...");
+    isMicPaused = false;
+    globalStream.getTracks().forEach(track => track.stop()); // Stop and release the stream
+    globalStream = null;
+  }
+  if (context) {
+    input.disconnect();
+    processor.disconnect();
+    context.close().then(() => {
       input = null;
       processor = null;
       context = null;
       AudioContext = null;
     });
-} // closes function stopRecording()
+  }
+}
 
+//================= WEBSOCKET =================
 function initWebSocket() {
     // Create WebSocket
     websocket = new WebSocket(websocket_uri);
@@ -113,8 +133,9 @@ function initWebSocket() {
         }
       }
     };
-} // closes function initWebSocket()
+}
 
+//================= AUDIO PROCESSING =================
 function downsampleBuffer (buffer, sampleRate, outSampleRate) {
     if (outSampleRate == sampleRate) {
       return buffer;
@@ -143,18 +164,33 @@ function downsampleBuffer (buffer, sampleRate, outSampleRate) {
     return result.buffer;
 } // closes function downsampleBuffer()
 
+//================= TEXT-TO-SPEECH =================
 //This function uses Google Speech API SpeechSynthesisUtterance, may reduce bandwidth usage
 function playTextToSpeech(text) {
   let speech = new SpeechSynthesisUtterance(text);
-  // Fetch available voices
   let voices = speechSynthesis.getVoices();
-  // Select the Aaron voice
   let selectedVoice = voices.find(voice => voice.name === "Aaron" && voice.lang === "en-US");
-  // Apply the voice if found
+
   if (selectedVoice) {
     speech.voice = selectedVoice;
   } else {
     console.warn("Aaron (en-US) voice not found. Using default voice.");
   }
+
+  speech.onstart = function () {
+    console.log("Speech started, pausing microphone...");
+    pauseRecording(); // Now using pauseRecording() instead of stopping completely
+  };
+
+  speech.onend = function () {
+    console.log("Speech ended, resuming microphone...");
+    startRecording(); // Resumes without permission prompt
+  };
+
   window.speechSynthesis.speak(speech);
 }
+
+// Ensure voices are loaded before calling playTextToSpeech
+window.speechSynthesis.onvoiceschanged = function () {
+  console.log("Voices loaded:", speechSynthesis.getVoices());
+};
