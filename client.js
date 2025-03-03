@@ -103,7 +103,9 @@ function initWebSocket() {
             currentTranscriptionDiv = document.createElement("div");
             console.log('created new transcription div awaiting next speaker');
             transcriptionContainer.appendChild(currentTranscriptionDiv);
-            playTextToSpeech(result.transcript);
+            if(result.speaker == 'Fawkes') {
+              playTextToSpeech(result.transcript);
+            }
           }
 
         } catch (error) {
@@ -144,5 +146,15 @@ function downsampleBuffer (buffer, sampleRate, outSampleRate) {
 //This function uses Google Speech API SpeechSynthesisUtterance, may reduce bandwidth usage
 function playTextToSpeech(text) {
   let speech = new SpeechSynthesisUtterance(text);
+  // Fetch available voices
+  let voices = speechSynthesis.getVoices();
+  // Select the Aaron voice
+  let selectedVoice = voices.find(voice => voice.name === "Aaron" && voice.lang === "en-US");
+  // Apply the voice if found
+  if (selectedVoice) {
+    speech.voice = selectedVoice;
+  } else {
+    console.warn("Aaron (en-US) voice not found. Using default voice.");
+  }
   window.speechSynthesis.speak(speech);
 }
