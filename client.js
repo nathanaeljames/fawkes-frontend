@@ -103,6 +103,7 @@ function initWebSocket() {
             currentTranscriptionDiv = document.createElement("div");
             console.log('created new transcription div awaiting next speaker');
             transcriptionContainer.appendChild(currentTranscriptionDiv);
+            playTextToSpeech(result.transcript);
           }
 
         } catch (error) {
@@ -139,3 +140,9 @@ function downsampleBuffer (buffer, sampleRate, outSampleRate) {
     }
     return result.buffer;
 } // closes function downsampleBuffer()
+
+//This function uses Google Speech API SpeechSynthesisUtterance, may reduce bandwidth usage
+function playTextToSpeech(text) {
+  let speech = new SpeechSynthesisUtterance(text);
+  window.speechSynthesis.speak(speech);
+}
