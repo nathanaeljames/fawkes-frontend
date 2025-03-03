@@ -165,7 +165,8 @@ function downsampleBuffer (buffer, sampleRate, outSampleRate) {
 } // closes function downsampleBuffer()
 
 //================= TEXT-TO-SPEECH =================
-//This function uses Google Speech API SpeechSynthesisUtterance, may reduce bandwidth usage
+//This function uses Google Speech API SpeechSynthesisUtterance, this should not use any bandwidth at all after initial load
+//This could be a good default for clients with poor internet connections incapable of full VoIP
 function playTextToSpeech(text) {
   let speech = new SpeechSynthesisUtterance(text);
   let voices = speechSynthesis.getVoices();
