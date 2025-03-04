@@ -9,7 +9,11 @@ let bufferSize = 4096,
     input,
     globalStream,
     websocket,
-    isMicPaused = false; // Track microphone state;
+    isMicPaused = false, // Track microphone state;
+    mediaSource,
+    sourceBuffer,
+    audioQueue = [],
+    audioInitialized = false;
 
 // Initialize WebSocket
 initWebSocket();
@@ -80,6 +84,7 @@ function initWebSocket() {
     // Create WebSocket
     websocket = new WebSocket(websocket_uri);
     //console.log("Websocket created...");
+    websocket.binaryType = "arraybuffer";  // Forces binary mode!
     let currentTranscriptionDiv = null;
   
     // WebSocket Definitions: executed when triggered webSocketStatus
@@ -98,6 +103,7 @@ function initWebSocket() {
       console.log(e.data);
 
       if (typeof e.data === 'string') {
+        //console.log("Received text message:", e.data);
         try {
           let result = JSON.parse(e.data);  // Parse incoming JSON message
 
@@ -123,14 +129,28 @@ function initWebSocket() {
             currentTranscriptionDiv = document.createElement("div");
             console.log('created new transcription div awaiting next speaker');
             transcriptionContainer.appendChild(currentTranscriptionDiv);
-            if(result.speaker == 'Fawkes') {
-              playTextToSpeech(result.transcript);
-            }
+            //if(result.speaker == 'Fawkes') {
+            //  playTextToSpeech(result.transcript);
+            //}
           }
 
         } catch (error) {
           console.error("Error parsing JSON: " + error);
         }
+      } else if (e.data instanceof ArrayBuffer) {
+        //console.log(`Receiving ArrayBuffer of size: ${e.data.byteLength}`);
+        console.log("Receiving arraybuffer")
+        playAudioStream(e.data);
+      } else if (e.data instanceof Blob) {
+        console.log("Receiving Blob data");
+        let reader = new FileReader();
+        reader.readAsArrayBuffer(e.data);
+        reader.onloadend = function () {
+          playAudioStream(reader.result);
+        };
+      } else {
+        //console.log(`Unexpected data type received: ${typeof e.data}`);
+        console.log("unexpected data type received")
       }
     };
 }
@@ -162,9 +182,9 @@ function downsampleBuffer (buffer, sampleRate, outSampleRate) {
       offsetBuffer = nextOffsetBuffer;
     }
     return result.buffer;
-} // closes function downsampleBuffer()
+}
 
-//================= TEXT-TO-SPEECH =================
+//================= TEXT-TO-SPEECH LOCAL SOLUTION =================
 //This function uses Google Speech API SpeechSynthesisUtterance, this should not use any bandwidth at all after initial load
 //This could be a good default for clients with poor internet connections incapable of full VoIP
 function playTextToSpeech(text) {
@@ -195,3 +215,20 @@ function playTextToSpeech(text) {
 window.speechSynthesis.onvoiceschanged = function () {
   console.log("Voices loaded:", speechSynthesis.getVoices());
 };
+
+//================= TEXT-TO-SPEECH NETWORK SOLUTION =================
+function playAudioStream(arrayBuffer) {
+  console.log("Decoding received audio...");
+
+  let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  audioContext.decodeAudioData(arrayBuffer, function (buffer) {
+    let source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start();
+    console.log("Playing received audio.");
+  }, function (error) {
+    console.error("Error decoding audio data", error);
+  });
+}
+
