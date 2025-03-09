@@ -3,81 +3,80 @@
 let websocket_uri = 'ws://127.0.0.1:9001';
 //let websocket_uri = 'ws://172.16.0.17:9001';
 let bufferSize = 4096,
-    AudioContext,
+    audioContext, websocket, globalStream, processor, input,
+    isProcessingAudio = false,
     context,
-    processor,
-    input,
-    globalStream,
-    websocket,
     isMicPaused = false, // Track microphone state;
     audioQueue = [],
     isPlaying = false;
 
-// Initialize WebSocket
-initWebSocket();
-
-//================= RECORDING =================
-function startRecording() {
-  if (globalStream) {
-    console.log("Resuming microphone...");
-    isMicPaused = false;
-    globalStream.getTracks().forEach(track => track.enabled = true); // Enable mic input
-    return;
+//================= RECORDING & PLAYBACK =================
+// Open channel: start recording and enable playback
+function openChannel() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
   }
 
-  //for playing
-  setupAudioContext();
+  // Initialize WebSocket
+  if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+    initWebSocket();
+  }
 
-  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-    .then(stream => {
-      globalStream = stream;
-      isMicPaused = false;
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    globalStream = stream;
+    isMicPaused = false;
 
-      AudioContext = window.AudioContext || window.webkitAudioContext;
-      context = new AudioContext({ latencyHint: 'interactive' });
-      processor = context.createScriptProcessor(bufferSize, 1, 1);
-      processor.connect(context.destination);
-      context.resume();
+    input = audioContext.createMediaStreamSource(globalStream);
+    processor = audioContext.createScriptProcessor(4096, 1, 1);
+    input.connect(processor);
+    processor.connect(audioContext.destination);
 
-      input = context.createMediaStreamSource(globalStream);
-      input.connect(processor);
+    processor.onaudioprocess = function (e) {
+      if (!isMicPaused) {
+        let left = e.inputBuffer.getChannelData(0);
+        let left16 = downsampleBuffer(left, 44100, 16000);
+        websocket.send(left16);
+      }
+    };
 
-      processor.onaudioprocess = function (e) {
-        if (!isMicPaused) {
-          let left = e.inputBuffer.getChannelData(0);
-          let left16 = downsampleBuffer(left, 44100, 16000);
-          websocket.send(left16);
-        }
-      };
-    })
-    .catch(error => console.error("Microphone access error:", error));
+    console.log("Microphone started.");
+  }).catch(error => console.error("Microphone access error:", error));
 }
 
 function pauseRecording() {
   if (globalStream) {
     console.log("Pausing microphone...");
     isMicPaused = true;
-    globalStream.getTracks().forEach(track => track.enabled = false); // Disable mic input
+    globalStream.getTracks().forEach(track => (track.enabled = false)); // Disable mic input
   }
 }
 
-function stopRecording() {
+// Close channel: stop recording and disable playback
+function closeChannel() {
   if (globalStream) {
-    console.log("Stopping microphone...");
-    isMicPaused = false;
-    globalStream.getTracks().forEach(track => track.stop()); // Stop and release the stream
+    globalStream.getTracks().forEach(track => track.stop());
     globalStream = null;
   }
-  if (context) {
+
+  if (processor) {
     input.disconnect();
     processor.disconnect();
-    context.close().then(() => {
-      input = null;
-      processor = null;
-      context = null;
-      AudioContext = null;
-    });
+    processor = null;
   }
+
+  if (audioContext) {
+    audioContext.suspend();
+  }
+
+  if (websocket) {
+    websocket.close();
+    websocket = null;
+  }
+
+  isMicPaused = false;
+  isPlaying = false;
+  audioQueue = [];
+  console.log("Microphone and WebSocket disconnected.");
 }
 
 //================= WEBSOCKET =================
@@ -214,42 +213,25 @@ function playTextToSpeech(text) {
 
   window.speechSynthesis.speak(speech);
 }
-// Ensure voices are loaded before calling playTextToSpeech
+/** Ensure voices are loaded before calling playTextToSpeech
+  Could cause program hang on slow connections, otherwise behavior defaults
+  to built-in voice automatically switching when other voices load */
 window.speechSynthesis.onvoiceschanged = function () {
   console.log("Voices loaded:", speechSynthesis.getVoices());
 };
 
 //================= TEXT-TO-SPEECH NETWORK SOLUTION =================
-// old function 1
-function playAudioStream(arrayBuffer) {
-  console.log("Decoding received audio...");
-
-  let audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  audioContext.decodeAudioData(arrayBuffer, function (buffer) {
-    let source = audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioContext.destination);
-    source.start();
-    console.log("Playing received audio.");
-  }, function (error) {
-    console.error("Error decoding audio data", error);
-  });
-}
-
-function setupAudioContext() {
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
-}
-
-function processAudioQueue() {
-  console.log("processAudioQueue called");
+// Process and play queued audio chunks
+async function processAudioQueue() {
   if (audioQueue.length === 0 || !audioContext) {
     isPlaying = false;
-    console.log("ERROR no content or context");
     return;
   }
 
   isPlaying = true;
   let chunk = audioQueue.shift();
+
+  console.log("Received data type:", typeof chunk, "Size:", chunk.byteLength);
 
   audioContext.decodeAudioData(chunk, function (buffer) {
     let source = audioContext.createBufferSource();
@@ -259,10 +241,70 @@ function processAudioQueue() {
     console.log("Playing audio chunk...");
 
     source.onended = function () {
-      processAudioQueue(); // Play next chunk
+      processAudioQueue();
     };
   }, function (error) {
     console.error("Error decoding audio chunk:", error);
   });
 }
+
+/**async function processAudioQueue() {
+  if (audioQueue.length === 0 || isProcessingAudio) {
+    return;
+  }
+  isProcessingAudio = true;
+
+  let audioBuffer = []; // Store chunks
+  let mediaSource = new MediaSource();
+  let audio = new Audio();
+  audio.src = URL.createObjectURL(mediaSource);
+
+  mediaSource.addEventListener("sourceopen", async () => {
+    let sourceBuffer = mediaSource.addSourceBuffer('audio/wav'); // Set WAV format
+
+    while (audioQueue.length > 0) {
+      let chunk = audioQueue.shift();
+
+      // Check for EOF marker
+      if (chunk === "EOF") {
+        console.log("End of audio stream received.");
+        break;
+      }
+
+      if (chunk instanceof Blob) {
+        chunk = await chunk.arrayBuffer(); // Convert Blob to ArrayBuffer
+      }
+
+      audioBuffer.push(chunk);
+    }
+
+    // Merge chunks into a single buffer
+    let completeBuffer = concatenateAudioChunks(audioBuffer);
+
+    // Append buffer for playback
+    sourceBuffer.appendBuffer(completeBuffer);
+    audio.play();
+  });
+
+  audio.addEventListener("ended", () => {
+    isProcessingAudio = false;
+    processAudioQueue(); // Process next audio if available
+  });
+}*/
+
+/**
+ * Helper function to concatenate audio chunks into a single buffer.
+ */
+/**function concatenateAudioChunks(chunks) {
+  let totalLength = chunks.reduce((acc, chunk) => acc + chunk.byteLength, 0);
+  let mergedBuffer = new Uint8Array(totalLength);
+  let offset = 0;
+
+  chunks.forEach(chunk => {
+    mergedBuffer.set(new Uint8Array(chunk), offset);
+    offset += chunk.byteLength;
+  });
+
+  return mergedBuffer.buffer; // Return as ArrayBuffer
+}*/
 
