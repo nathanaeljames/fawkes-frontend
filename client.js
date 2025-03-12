@@ -2,25 +2,35 @@
 // Global Variables
 let websocket_uri = 'ws://127.0.0.1:9001';
 //let websocket_uri = 'ws://172.16.0.17:9001';
+//common PCM sample rates are 16000, 22050, 44100
 let bufferSize = 4096,
-    audioContext, websocket, globalStream, processor, input,
+    audioContext,
+    sampleRate = 16000,
+    websocket, globalStream, processor, input,
     isProcessingAudio = false,
     context,
     isMicPaused = false, // Track microphone state;
     audioQueue = [],
     isPlaying = false;
+let lastChunkTime = performance.now();
+
+// Initialize WebSocket
+if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+  initWebSocket();
+}
 
 //================= RECORDING & PLAYBACK =================
 // Open channel: start recording and enable playback
 function openChannel() {
   if (!audioContext) {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    //audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
   }
 
   // Initialize WebSocket
-  if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-    initWebSocket();
-  }
+  //if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+  //  initWebSocket();
+  //}
 
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     globalStream = stream;
@@ -34,7 +44,10 @@ function openChannel() {
     processor.onaudioprocess = function (e) {
       if (!isMicPaused) {
         let left = e.inputBuffer.getChannelData(0);
-        let left16 = downsampleBuffer(left, 44100, 16000);
+        let left16 = downsampleBuffer(left, 44100, sampleRate);
+        console.log("sending audio...");
+        //let left16 = downsampleBuffer(left, 44100, 22050);
+        //let left16 = downsampleBuffer(left, 44100, 44100);
         websocket.send(left16);
       }
     };
@@ -85,6 +98,7 @@ function initWebSocket() {
     websocket = new WebSocket(websocket_uri);
     //console.log("Websocket created...");
     websocket.binaryType = "arraybuffer";  // Forces binary mode!
+    //websocket.binaryType = "blob";  // Forces binary mode!
     let currentTranscriptionDiv = null;
   
     // WebSocket Definitions: executed when triggered webSocketStatus
@@ -141,9 +155,14 @@ function initWebSocket() {
       } else if (e.data instanceof ArrayBuffer) {
           //console.log(`Receiving ArrayBuffer of size: ${e.data.byteLength}`);
           console.log("Receiving arraybuffer")
+          let now = performance.now();
+          let gap = now - lastChunkTime;  // Time difference between chunks
+          lastChunkTime = now;  // Update last received time
+          console.log(`Received audio chunk at ${now.toFixed(2)} ms (gap: ${gap.toFixed(2)} ms)`);
           //playAudioStream(e.data);
-          audioQueue.push(e.data);
-          if (!isPlaying) processAudioQueue(); // Start playback if idle
+          //audioQueue.push(e.data);
+          //if (!isPlaying) processAudioQueue(); // Start playback if idle
+          processAudioData(e);
       } else if (e.data instanceof Blob) {
           console.log("Receiving Blob data");
           /**let reader = new FileReader();
@@ -151,6 +170,7 @@ function initWebSocket() {
           reader.onloadend = function () {
             playAudioStream(reader.result);
           };*/
+          processAudioData(e);
       } else {
         //console.log(`Unexpected data type received: ${typeof e.data}`);
         console.log("unexpected data type received")
@@ -164,7 +184,7 @@ function downsampleBuffer (buffer, sampleRate, outSampleRate) {
       return buffer;
     }
     if (outSampleRate > sampleRate) {
-      throw 'downsampling rate show be smaller than original sample rate';
+      throw 'downsampling rate should be smaller than original sample rate';
     }
     var sampleRateRatio = sampleRate / outSampleRate;
     var newLength = Math.round(buffer.length / sampleRateRatio);
@@ -222,6 +242,7 @@ window.speechSynthesis.onvoiceschanged = function () {
 
 //================= TEXT-TO-SPEECH NETWORK SOLUTION =================
 // Process and play queued audio chunks
+//old function
 async function processAudioQueue() {
   if (audioQueue.length === 0 || !audioContext) {
     isPlaying = false;
@@ -307,4 +328,44 @@ async function processAudioQueue() {
 
   return mergedBuffer.buffer; // Return as ArrayBuffer
 }*/
+
+function processAudioData(event) {
+  let data = event.data;
+
+  if (data === "EOF") {
+    console.log("End of audio stream.");
+    return;
+  }
+
+  let int16Array = new Int16Array(data); // Convert raw PCM to Int16Array
+  let float32Array = new Float32Array(int16Array.length);
+
+  for (let i = 0; i < int16Array.length; i++) {
+    float32Array[i] = int16Array[i] / 32768.0; // Convert to Float32
+  }
+
+  audioQueue.push(float32Array);
+  if (!isPlaying) {
+    playAudio();
+  }
+}
+
+function playAudio() {
+  if (audioQueue.length === 0) {
+    isPlaying = false;
+    return;
+  }
+
+  isPlaying = true;
+  let buffer = audioContext.createBuffer(1, audioQueue[0].length, sampleRate);
+  //let buffer = audioContext.createBuffer(1, audioQueue[0].length, audioContext.sampleRate);
+  buffer.copyToChannel(audioQueue.shift(), 0);
+
+  let source = audioContext.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioContext.destination);
+  source.start();
+
+  source.onended = () => playAudio();
+}
 
