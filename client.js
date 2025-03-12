@@ -4,7 +4,7 @@ let websocket_uri = 'ws://127.0.0.1:9001';
 //let websocket_uri = 'ws://172.16.0.17:9001';
 //common PCM sample rates are 16000, 22050, 44100
 let bufferSize = 4096,
-    audioContext,
+    micAudioContext, playbackAudioContext,
     sampleRate = 16000,
     websocket, globalStream, processor, input,
     isProcessingAudio = false,
@@ -22,9 +22,12 @@ if (!websocket || websocket.readyState !== WebSocket.OPEN) {
 //================= RECORDING & PLAYBACK =================
 // Open channel: start recording and enable playback
 function openChannel() {
-  if (!audioContext) {
-    //audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
+  if (!micAudioContext) {
+    micAudioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+  }
+
+  if (!playbackAudioContext) {
+    playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
   }
 
   // Initialize WebSocket
@@ -36,16 +39,16 @@ function openChannel() {
     globalStream = stream;
     isMicPaused = false;
 
-    input = audioContext.createMediaStreamSource(globalStream);
-    processor = audioContext.createScriptProcessor(4096, 1, 1);
+    input = micAudioContext.createMediaStreamSource(globalStream);
+    processor = micAudioContext.createScriptProcessor(4096, 1, 1);
     input.connect(processor);
-    processor.connect(audioContext.destination);
+    processor.connect(micAudioContext.destination);
 
     processor.onaudioprocess = function (e) {
       if (!isMicPaused) {
         let left = e.inputBuffer.getChannelData(0);
-        let left16 = downsampleBuffer(left, 44100, sampleRate);
-        console.log("sending audio...");
+        let left16 = downsampleBuffer(left, micAudioContext.sampleRate, sampleRate);
+        //console.log("sending audio...");
         //let left16 = downsampleBuffer(left, 44100, 22050);
         //let left16 = downsampleBuffer(left, 44100, 44100);
         websocket.send(left16);
@@ -56,7 +59,7 @@ function openChannel() {
   }).catch(error => console.error("Microphone access error:", error));
 }
 
-function pauseRecording() {
+function pauseMic() {
   if (globalStream) {
     console.log("Pausing microphone...");
     isMicPaused = true;
@@ -77,8 +80,9 @@ function closeChannel() {
     processor = null;
   }
 
-  if (audioContext) {
-    audioContext.suspend();
+  if (micAudioContext || playbackAudioContext) {
+    micAudioContext.suspend();
+    playbackAudioContext.suspend();
   }
 
   if (websocket) {
@@ -162,6 +166,10 @@ function initWebSocket() {
           //playAudioStream(e.data);
           //audioQueue.push(e.data);
           //if (!isPlaying) processAudioQueue(); // Start playback if idle
+          //micAudioContext.suspend();
+          /**if(!isMicPaused) {
+            pauseMic();
+          } */
           processAudioData(e);
       } else if (e.data instanceof Blob) {
           console.log("Receiving Blob data");
@@ -179,14 +187,14 @@ function initWebSocket() {
 }
 
 //================= AUDIO PROCESSING =================
-function downsampleBuffer (buffer, sampleRate, outSampleRate) {
-    if (outSampleRate == sampleRate) {
+function downsampleBuffer (buffer, inSampleRate, outSampleRate) {
+    if (outSampleRate == inSampleRate) {
       return buffer;
     }
-    if (outSampleRate > sampleRate) {
+    if (outSampleRate > inSampleRate) {
       throw 'downsampling rate should be smaller than original sample rate';
     }
-    var sampleRateRatio = sampleRate / outSampleRate;
+    var sampleRateRatio = inSampleRate / outSampleRate;
     var newLength = Math.round(buffer.length / sampleRateRatio);
     var result = new Int16Array(newLength);
     var offsetResult = 0;
@@ -223,12 +231,12 @@ function playTextToSpeech(text) {
 
   speech.onstart = function () {
     console.log("Speech started, pausing microphone...");
-    pauseRecording(); // Now using pauseRecording() instead of stopping completely
+    pauseMic(); // Now using pauseRecording() instead of stopping completely
   };
 
   speech.onend = function () {
     console.log("Speech ended, resuming microphone...");
-    startRecording(); // Resumes without permission prompt
+    openChannel(); // Resumes without permission prompt
   };
 
   window.speechSynthesis.speak(speech);
@@ -241,99 +249,20 @@ window.speechSynthesis.onvoiceschanged = function () {
 };
 
 //================= TEXT-TO-SPEECH NETWORK SOLUTION =================
-// Process and play queued audio chunks
-//old function
-async function processAudioQueue() {
-  if (audioQueue.length === 0 || !audioContext) {
-    isPlaying = false;
-    return;
-  }
-
-  isPlaying = true;
-  let chunk = audioQueue.shift();
-
-  console.log("Received data type:", typeof chunk, "Size:", chunk.byteLength);
-
-  audioContext.decodeAudioData(chunk, function (buffer) {
-    let source = audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioContext.destination);
-    source.start();
-    console.log("Playing audio chunk...");
-
-    source.onended = function () {
-      processAudioQueue();
-    };
-  }, function (error) {
-    console.error("Error decoding audio chunk:", error);
-  });
-}
-
-/**async function processAudioQueue() {
-  if (audioQueue.length === 0 || isProcessingAudio) {
-    return;
-  }
-  isProcessingAudio = true;
-
-  let audioBuffer = []; // Store chunks
-  let mediaSource = new MediaSource();
-  let audio = new Audio();
-  audio.src = URL.createObjectURL(mediaSource);
-
-  mediaSource.addEventListener("sourceopen", async () => {
-    let sourceBuffer = mediaSource.addSourceBuffer('audio/wav'); // Set WAV format
-
-    while (audioQueue.length > 0) {
-      let chunk = audioQueue.shift();
-
-      // Check for EOF marker
-      if (chunk === "EOF") {
-        console.log("End of audio stream received.");
-        break;
-      }
-
-      if (chunk instanceof Blob) {
-        chunk = await chunk.arrayBuffer(); // Convert Blob to ArrayBuffer
-      }
-
-      audioBuffer.push(chunk);
-    }
-
-    // Merge chunks into a single buffer
-    let completeBuffer = concatenateAudioChunks(audioBuffer);
-
-    // Append buffer for playback
-    sourceBuffer.appendBuffer(completeBuffer);
-    audio.play();
-  });
-
-  audio.addEventListener("ended", () => {
-    isProcessingAudio = false;
-    processAudioQueue(); // Process next audio if available
-  });
-}*/
-
-/**
- * Helper function to concatenate audio chunks into a single buffer.
- */
-/**function concatenateAudioChunks(chunks) {
-  let totalLength = chunks.reduce((acc, chunk) => acc + chunk.byteLength, 0);
-  let mergedBuffer = new Uint8Array(totalLength);
-  let offset = 0;
-
-  chunks.forEach(chunk => {
-    mergedBuffer.set(new Uint8Array(chunk), offset);
-    offset += chunk.byteLength;
-  });
-
-  return mergedBuffer.buffer; // Return as ArrayBuffer
-}*/
-
 function processAudioData(event) {
   let data = event.data;
 
-  if (data === "EOF") {
-    console.log("End of audio stream.");
+  // Check if the received data is a valid PCM chunk
+  if (data.byteLength % 2 !== 0) {
+    let textDecoder = new TextDecoder("utf-8");
+    let decodedString = textDecoder.decode(data);
+
+    if (decodedString.trim() === "EOF") {
+      console.log("End of audio stream.");
+      return; // Stop processing further
+    }
+
+    console.warn("Received malformed audio chunk, skipping.");
     return;
   }
 
@@ -357,13 +286,13 @@ function playAudio() {
   }
 
   isPlaying = true;
-  let buffer = audioContext.createBuffer(1, audioQueue[0].length, sampleRate);
+  let buffer = playbackAudioContext.createBuffer(1, audioQueue[0].length, sampleRate);
   //let buffer = audioContext.createBuffer(1, audioQueue[0].length, audioContext.sampleRate);
   buffer.copyToChannel(audioQueue.shift(), 0);
 
-  let source = audioContext.createBufferSource();
+  let source = playbackAudioContext.createBufferSource();
   source.buffer = buffer;
-  source.connect(audioContext.destination);
+  source.connect(playbackAudioContext.destination);
   source.start();
 
   source.onended = () => playAudio();
