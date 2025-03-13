@@ -5,10 +5,8 @@ let websocket_uri = 'ws://127.0.0.1:9001';
 //common PCM sample rates are 16000, 22050, 44100
 let bufferSize = 4096,
     micAudioContext, playbackAudioContext,
-    sampleRate = 16000,
+    sampleRate = 16000, offlineSpeech = true,
     websocket, globalStream, processor, input,
-    isProcessingAudio = false,
-    context,
     isMicPaused = false, // Track microphone state;
     audioQueue = [],
     isPlaying = false;
@@ -148,9 +146,9 @@ function initWebSocket() {
             currentTranscriptionDiv = document.createElement("div");
             console.log('created new transcription div awaiting next speaker');
             transcriptionContainer.appendChild(currentTranscriptionDiv);
-            //if(result.speaker == 'Fawkes') {
-            //  playTextToSpeech(result.transcript);
-            //}
+            if (offlineSpeech && result.speaker == 'Fawkes') {
+              playTextToSpeech(result.transcript);
+            }
           }
 
         } catch (error) {
@@ -170,7 +168,9 @@ function initWebSocket() {
           /**if(!isMicPaused) {
             pauseMic();
           } */
-          processAudioData(e);
+          if (!offlineSpeech) {
+            processAudioData(e);
+          }  
       } else if (e.data instanceof Blob) {
           console.log("Receiving Blob data");
           /**let reader = new FileReader();
@@ -178,10 +178,12 @@ function initWebSocket() {
           reader.onloadend = function () {
             playAudioStream(reader.result);
           };*/
-          processAudioData(e);
+          if (!offlineSpeech) {
+            processAudioData(e);
+          }  
       } else {
-        //console.log(`Unexpected data type received: ${typeof e.data}`);
-        console.log("unexpected data type received")
+        console.log(`Unexpected data type received: ${typeof e.data}`);
+        //console.log("unexpected data type received")
       }
     };
 }
@@ -249,6 +251,7 @@ window.speechSynthesis.onvoiceschanged = function () {
 };
 
 //================= TEXT-TO-SPEECH NETWORK SOLUTION =================
+//This solution plays audio as it streams over websocket, lets server choose voice, inflections, etc
 function processAudioData(event) {
   let data = event.data;
 
