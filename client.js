@@ -20,18 +20,14 @@ if (!websocket || websocket.readyState !== WebSocket.OPEN) {
 //================= RECORDING & PLAYBACK =================
 // Open channel: start recording and enable playback
 function openChannel() {
+  // Mic needs its own audio context w/ sample rate defined by browser/microphone, later downsampled
   if (!micAudioContext) {
     micAudioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
   }
-
+  // Playback needs its own audio context forced to match the expected incoming sample rate
   if (!playbackAudioContext) {
     playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
   }
-
-  // Initialize WebSocket
-  //if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-  //  initWebSocket();
-  //}
 
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     globalStream = stream;
@@ -46,9 +42,6 @@ function openChannel() {
       if (!isMicPaused) {
         let left = e.inputBuffer.getChannelData(0);
         let left16 = downsampleBuffer(left, micAudioContext.sampleRate, sampleRate);
-        //console.log("sending audio...");
-        //let left16 = downsampleBuffer(left, 44100, 22050);
-        //let left16 = downsampleBuffer(left, 44100, 44100);
         websocket.send(left16);
       }
     };
@@ -62,6 +55,14 @@ function pauseMic() {
     console.log("Pausing microphone...");
     isMicPaused = true;
     globalStream.getTracks().forEach(track => (track.enabled = false)); // Disable mic input
+  }
+}
+
+function resumeMic() {
+  if (globalStream) {
+    console.log("Resuming microphone...");
+    isMicPaused = false;
+    globalStream.getTracks().forEach(track => (track.enabled = true)); // Enable mic input
   }
 }
 
@@ -98,17 +99,18 @@ function closeChannel() {
 function initWebSocket() {
     // Create WebSocket
     websocket = new WebSocket(websocket_uri);
-    //console.log("Websocket created...");
-    websocket.binaryType = "arraybuffer";  // Forces binary mode!
-    //websocket.binaryType = "blob";  // Forces binary mode!
+    websocket.binaryType = "arraybuffer";  // Forces binary ArrayBuffer mode
+    //websocket.binaryType = "blob";  // Forces binary blob mode
     let currentTranscriptionDiv = null;
   
     // WebSocket Definitions: executed when triggered webSocketStatus
     websocket.onopen = function() {
       console.log("connected to server");
-      //websocket.send("CONNECTED TO YOU");
+      // If using client-side TTS, tell server not to bother with TTS on its end
+      if(offlineSpeech){
+        websocket.send("clientSideTTS");
+      }
       document.getElementById("webSocketStatus").innerHTML = 'Connected';
-      //setupAudioContext();
     }
     
     websocket.onclose = function(e) {
@@ -156,34 +158,21 @@ function initWebSocket() {
         }
       } else if (e.data instanceof ArrayBuffer) {
           //console.log(`Receiving ArrayBuffer of size: ${e.data.byteLength}`);
-          console.log("Receiving arraybuffer")
-          let now = performance.now();
-          let gap = now - lastChunkTime;  // Time difference between chunks
-          lastChunkTime = now;  // Update last received time
-          console.log(`Received audio chunk at ${now.toFixed(2)} ms (gap: ${gap.toFixed(2)} ms)`);
-          //playAudioStream(e.data);
-          //audioQueue.push(e.data);
-          //if (!isPlaying) processAudioQueue(); // Start playback if idle
-          //micAudioContext.suspend();
-          /**if(!isMicPaused) {
-            pauseMic();
-          } */
+          //let now = performance.now();
+          //let gap = now - lastChunkTime;  // Time difference between chunks
+          //lastChunkTime = now;  // Update last received time
+          //console.log(`Received audio chunk at ${now.toFixed(2)} ms (gap: ${gap.toFixed(2)} ms)`);
           if (!offlineSpeech) {
             processAudioData(e);
           }  
       } else if (e.data instanceof Blob) {
           console.log("Receiving Blob data");
-          /**let reader = new FileReader();
-          reader.readAsArrayBuffer(e.data);
-          reader.onloadend = function () {
-            playAudioStream(reader.result);
-          };*/
           if (!offlineSpeech) {
-            processAudioData(e);
+            return;
+            // Blob data will likely need a different routine
           }  
       } else {
         console.log(`Unexpected data type received: ${typeof e.data}`);
-        //console.log("unexpected data type received")
       }
     };
 }
@@ -238,7 +227,7 @@ function playTextToSpeech(text) {
 
   speech.onend = function () {
     console.log("Speech ended, resuming microphone...");
-    openChannel(); // Resumes without permission prompt
+    resumeMic(); // Resumes without permission prompt
   };
 
   window.speechSynthesis.speak(speech);
@@ -251,7 +240,7 @@ window.speechSynthesis.onvoiceschanged = function () {
 };
 
 //================= TEXT-TO-SPEECH NETWORK SOLUTION =================
-//This solution plays audio as it streams over websocket, lets server choose voice, inflections, etc
+//This solution plays audio live as it streams over websocket, lets server choose voice, inflections, etc
 function processAudioData(event) {
   let data = event.data;
 
@@ -259,7 +248,7 @@ function processAudioData(event) {
   if (data.byteLength % 2 !== 0) {
     let textDecoder = new TextDecoder("utf-8");
     let decodedString = textDecoder.decode(data);
-
+    // if not PCM chunk it may be EOF signal
     if (decodedString.trim() === "EOF") {
       console.log("End of audio stream.");
       return; // Stop processing further
@@ -290,7 +279,6 @@ function playAudio() {
 
   isPlaying = true;
   let buffer = playbackAudioContext.createBuffer(1, audioQueue[0].length, sampleRate);
-  //let buffer = audioContext.createBuffer(1, audioQueue[0].length, audioContext.sampleRate);
   buffer.copyToChannel(audioQueue.shift(), 0);
 
   let source = playbackAudioContext.createBufferSource();
