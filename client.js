@@ -1,11 +1,11 @@
 //================= CONFIG =================
 // Global Variables
-let websocket_uri = 'ws://127.0.0.1:9001';
-//let websocket_uri = 'ws://172.16.0.17:9001';
+//let websocket_uri = 'ws://127.0.0.1:9001';
+let websocket_uri = 'ws://172.16.0.41:9001';
 //common PCM sample rates are 16000, 22050, 44100
 let bufferSize = 4096,
     micAudioContext, playbackAudioContext,
-    sampleRate = 16000, offlineSpeech = true,
+    sampleRate = 16000, offlineSpeech = false,
     websocket, globalStream, processor, input,
     isMicPaused = false, // Track microphone state;
     audioQueue = [],
