@@ -140,8 +140,34 @@ function initWebSocket() {
             transcriptionContainer.appendChild(currentTranscriptionDiv);
           }
 
+          // Create separate span elements for the speaker and the transcript
+          let speakerSpan = document.createElement("span");
+          let transcriptSpan = document.createElement("span");
+
+          // Set the text content
+          speakerSpan.textContent = result.speaker + ': ';
+          transcriptSpan.textContent = result.transcript;
+
+          // Apply color based on speaker confidence
+          if (result.speaker_confidence === 'uncertain') {
+            speakerSpan.style.color = '#C0C0C0'; // Silver
+          } else {
+            speakerSpan.style.color = '#000000'; // Black
+          }
+
+          // Apply color based on ASR confidence
+          if (result.asr_confidence === 'uncertain') {
+            transcriptSpan.style.color = '#C0C0C0'; // Silver
+          } else {
+            transcriptSpan.style.color = '#000000'; // Black
+          }
+
           // Update the current div with the latest transcription
-          currentTranscriptionDiv.innerHTML = result.speaker + ': ' + result.transcript;
+          //currentTranscriptionDiv.innerHTML = result.speaker + ': ' + result.transcript;
+          // Clear previous content and append the new styled spans
+          currentTranscriptionDiv.innerHTML = ''; // Clear the content for the new spans
+          currentTranscriptionDiv.appendChild(speakerSpan);
+          currentTranscriptionDiv.appendChild(transcriptSpan);
 
           // If "final" is true, create a new div for the next speaker
           if (result.final) {
