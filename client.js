@@ -1,15 +1,17 @@
 //================= CONFIG =================
 // Global Variables
 //let websocket_uri = 'ws://127.0.0.1:9001';
-let websocket_uri = 'ws://172.16.0.41:9001';
+//let websocket_uri = 'ws://172.16.0.41:9001';
+
+let websocket_uri = 'ws://138.197.175.164:9001';
 //common PCM sample rates are 16000, 22050, 44100
 let bufferSize = 4096,
-    micAudioContext, playbackAudioContext,
-    sampleRate = 16000, offlineSpeech = false,
-    websocket, globalStream, processor, input,
-    isMicPaused = false, // Track microphone state;
-    audioQueue = [],
-    isPlaying = false;
+  micAudioContext, playbackAudioContext,
+  sampleRate = 16000, offlineSpeech = false,
+  websocket, globalStream, processor, input,
+  isMicPaused = false, // Track microphone state;
+  audioQueue = [],
+  isPlaying = false;
 let lastChunkTime = performance.now();
 
 // Initialize WebSocket
@@ -97,139 +99,144 @@ function closeChannel() {
 
 //================= WEBSOCKET =================
 function initWebSocket() {
-    // Create WebSocket
-    websocket = new WebSocket(websocket_uri);
-    websocket.binaryType = "arraybuffer";  // Forces binary ArrayBuffer mode
-    //websocket.binaryType = "blob";  // Forces binary blob mode
-    let currentTranscriptionDiv = null;
-  
-    // WebSocket Definitions: executed when triggered webSocketStatus
-    websocket.onopen = function() {
-      console.log("connected to server");
-      // If using client-side TTS, tell server not to bother with TTS on its end
-      if(offlineSpeech){
-        websocket.send("clientSideTTS");
-      }
-      document.getElementById("webSocketStatus").innerHTML = 'Connected';
+  // Create WebSocket
+  websocket = new WebSocket(websocket_uri);
+  websocket.binaryType = "arraybuffer";  // Forces binary ArrayBuffer mode
+  //websocket.binaryType = "blob";  // Forces binary blob mode
+  let currentTranscriptionDiv = null;
+
+  // WebSocket Definitions: executed when triggered webSocketStatus
+  websocket.onopen = function () {
+    console.log("connected to server");
+    // If using client-side TTS, tell server not to bother with TTS on its end
+    if (offlineSpeech) {
+      websocket.send("clientSideTTS");
     }
-    
-    websocket.onclose = function(e) {
-      console.log("connection closed (" + e.code + ")");
-      document.getElementById("webSocketStatus").innerHTML = 'Not Connected';
-    }
-    
-    websocket.onmessage = function (e) {
-      console.log(e.data);
+    document.getElementById("webSocketStatus").innerHTML = 'Connected';
+  }
 
-      if (typeof e.data === 'string') {
-        //console.log("Received text message:", e.data);
-        try {
-          let result = JSON.parse(e.data);  // Parse incoming JSON message
+  websocket.onclose = function (e) {
+    console.log("connection closed (" + e.code + ")");
+    document.getElementById("webSocketStatus").innerHTML = 'Not Connected';
+  }
 
-          if (result.error) {
-            console.error("Error: " + result.error);
-            return;
-          }
+  websocket.onmessage = function (e) {
+    console.log(e.data);
 
-          let transcriptionContainer = document.getElementById("transcription");
+    if (typeof e.data === 'string') {
+      //console.log("Received text message:", e.data);
+      try {
+        let result = JSON.parse(e.data);  // Parse incoming JSON message
 
-          // If we don't have a div yet, create one
-          if (!currentTranscriptionDiv) {
-            currentTranscriptionDiv = document.createElement("div");
-            console.log('created new transcription div awaiting initial speaker');
-            transcriptionContainer.appendChild(currentTranscriptionDiv);
-          }
-
-          // Create separate span elements for the speaker and the transcript
-          let speakerSpan = document.createElement("span");
-          let transcriptSpan = document.createElement("span");
-
-          // Set the text content
-          speakerSpan.textContent = result.speaker + ': ';
-          transcriptSpan.textContent = result.transcript;
-
-          // Apply color based on speaker confidence
-          if (result.speaker_confidence === 'uncertain') {
-            speakerSpan.style.color = '#C0C0C0'; // Silver
-          } else {
-            speakerSpan.style.color = '#000000'; // Black
-          }
-
-          // Apply color based on ASR confidence
-          if (result.asr_confidence === 'uncertain') {
-            transcriptSpan.style.color = '#C0C0C0'; // Silver
-          } else {
-            transcriptSpan.style.color = '#000000'; // Black
-          }
-
-          // Update the current div with the latest transcription
-          //currentTranscriptionDiv.innerHTML = result.speaker + ': ' + result.transcript;
-          // Clear previous content and append the new styled spans
-          currentTranscriptionDiv.innerHTML = ''; // Clear the content for the new spans
-          currentTranscriptionDiv.appendChild(speakerSpan);
-          currentTranscriptionDiv.appendChild(transcriptSpan);
-
-          // If "final" is true, create a new div for the next speaker
-          if (result.final) {
-            currentTranscriptionDiv = document.createElement("div");
-            console.log('created new transcription div awaiting next speaker');
-            transcriptionContainer.appendChild(currentTranscriptionDiv);
-            if (offlineSpeech && result.speaker == 'Fawkes') {
-              playTextToSpeech(result.transcript);
-            }
-          }
-
-        } catch (error) {
-          console.error("Error parsing JSON: " + error);
+        if (result.error) {
+          console.error("Error: " + result.error);
+          return;
         }
-      } else if (e.data instanceof ArrayBuffer) {
-          //console.log(`Receiving ArrayBuffer of size: ${e.data.byteLength}`);
-          //let now = performance.now();
-          //let gap = now - lastChunkTime;  // Time difference between chunks
-          //lastChunkTime = now;  // Update last received time
-          //console.log(`Received audio chunk at ${now.toFixed(2)} ms (gap: ${gap.toFixed(2)} ms)`);
-          if (!offlineSpeech) {
-            processAudioData(e);
-          }  
-      } else if (e.data instanceof Blob) {
-          console.log("Receiving Blob data");
-          if (!offlineSpeech) {
-            return;
-            // Blob data will likely need a different routine
-          }  
-      } else {
-        console.log(`Unexpected data type received: ${typeof e.data}`);
+
+        let transcriptionContainer = document.getElementById("transcription");
+
+        // If we don't have a div yet, create one
+        if (!currentTranscriptionDiv) {
+          currentTranscriptionDiv = document.createElement("div");
+          console.log('created new transcription div awaiting initial speaker');
+          transcriptionContainer.appendChild(currentTranscriptionDiv);
+        }
+
+        // Create separate span elements for the speaker and the transcript
+        let speakerSpan = document.createElement("span");
+        let transcriptSpan = document.createElement("span");
+
+        // Set the text content
+        speakerSpan.textContent = result.speaker + ': ';
+        transcriptSpan.textContent = result.transcript;
+
+        // Apply color based on speaker confidence
+        if (result.speaker_confidence === 'uncertain') {
+          speakerSpan.style.color = '#C0C0C0'; // Silver
+        } else {
+          speakerSpan.style.color = '#000000'; // Black
+        }
+
+        // Apply color based on ASR confidence
+        if (result.asr_confidence === 'uncertain') {
+          transcriptSpan.style.color = '#C0C0C0'; // Silver
+        } else {
+          transcriptSpan.style.color = '#000000'; // Black
+        }
+
+        // Update the current div with the latest transcription
+        //currentTranscriptionDiv.innerHTML = result.speaker + ': ' + result.transcript;
+        // Clear previous content and append the new styled spans
+        currentTranscriptionDiv.innerHTML = ''; // Clear the content for the new spans
+        currentTranscriptionDiv.appendChild(speakerSpan);
+        currentTranscriptionDiv.appendChild(transcriptSpan);
+
+        // If "final" is true, create a new div for the next speaker
+        if (result.final) {
+          currentTranscriptionDiv = document.createElement("div");
+          console.log('created new transcription div awaiting next speaker');
+          transcriptionContainer.appendChild(currentTranscriptionDiv);
+
+          // Auto-scroll to bottom to show latest message
+          let container = document.getElementById('transcription-container');
+          container.scrollTop = container.scrollHeight;
+
+          if (offlineSpeech && result.speaker == 'Fawkes') {
+            playTextToSpeech(result.transcript);
+          }
+        }
+
+      } catch (error) {
+        console.error("Error parsing JSON: " + error);
       }
-    };
+    } else if (e.data instanceof ArrayBuffer) {
+      //console.log(`Receiving ArrayBuffer of size: ${e.data.byteLength}`);
+      //let now = performance.now();
+      //let gap = now - lastChunkTime;  // Time difference between chunks
+      //lastChunkTime = now;  // Update last received time
+      //console.log(`Received audio chunk at ${now.toFixed(2)} ms (gap: ${gap.toFixed(2)} ms)`);
+      if (!offlineSpeech) {
+        processAudioData(e);
+      }
+    } else if (e.data instanceof Blob) {
+      console.log("Receiving Blob data");
+      if (!offlineSpeech) {
+        return;
+        // Blob data will likely need a different routine
+      }
+    } else {
+      console.log(`Unexpected data type received: ${typeof e.data}`);
+    }
+  };
 }
 
 //================= AUDIO PROCESSING =================
-function downsampleBuffer (buffer, inSampleRate, outSampleRate) {
-    if (outSampleRate == inSampleRate) {
-      return buffer;
+function downsampleBuffer(buffer, inSampleRate, outSampleRate) {
+  if (outSampleRate == inSampleRate) {
+    return buffer;
+  }
+  if (outSampleRate > inSampleRate) {
+    throw 'downsampling rate should be smaller than original sample rate';
+  }
+  var sampleRateRatio = inSampleRate / outSampleRate;
+  var newLength = Math.round(buffer.length / sampleRateRatio);
+  var result = new Int16Array(newLength);
+  var offsetResult = 0;
+  var offsetBuffer = 0;
+  while (offsetResult < result.length) {
+    var nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+    var accum = 0,
+      count = 0;
+    for (var i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+      accum += buffer[i];
+      count++;
     }
-    if (outSampleRate > inSampleRate) {
-      throw 'downsampling rate should be smaller than original sample rate';
-    }
-    var sampleRateRatio = inSampleRate / outSampleRate;
-    var newLength = Math.round(buffer.length / sampleRateRatio);
-    var result = new Int16Array(newLength);
-    var offsetResult = 0;
-    var offsetBuffer = 0;
-    while (offsetResult < result.length) {
-      var nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
-      var accum = 0,
-        count = 0;
-      for (var i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
-        accum += buffer[i];
-        count++;
-      }
-  
-      result[offsetResult] = Math.min(1, accum / count) * 0x7fff;
-      offsetResult++;
-      offsetBuffer = nextOffsetBuffer;
-    }
-    return result.buffer;
+
+    result[offsetResult] = Math.min(1, accum / count) * 0x7fff;
+    offsetResult++;
+    offsetBuffer = nextOffsetBuffer;
+  }
+  return result.buffer;
 }
 
 //================= TEXT-TO-SPEECH LOCAL SOLUTION =================
@@ -314,4 +321,3 @@ function playAudio() {
 
   source.onended = () => playAudio();
 }
-
