@@ -11,90 +11,48 @@
       height: 100vh;
       display: flex;
       flex-direction: column;
-      font-family: Arial, sans-serif;
     }
 
-    .controls {
+    .top-content {
       flex-shrink: 0;
-      /* Don't allow controls to shrink */
-      margin-bottom: 10px;
-    }
-
-    .pangrams {
-      flex-shrink: 0;
-      /* Don't allow pangrams to shrink */
-      margin-bottom: 10px;
     }
 
     #transcription-container {
       flex-grow: 1;
-      /* Take up remaining space */
       overflow-y: auto;
-      /* Enable vertical scrolling */
       border: 1px solid #ccc;
       padding: 10px;
-      background-color: #f9f9f9;
-    }
-
-    #transcription div {
-      margin-bottom: 8px;
-      line-height: 1.4;
-    }
-
-    button {
-      margin-right: 10px;
-      padding: 8px 16px;
-      font-size: 14px;
-      cursor: pointer;
     }
   </style>
 </head>
 
 <body>
-  <!-- Fixed controls at top -->
-  <div class="controls">
+  <div class="top-content">
     <div class='message'>Welcome!</div>
     <button onclick='openChannel()'>Open channel</button>
     <button onclick='closeChannel()'>Close channel</button>
     <br />
     <div>WebSocket: <span id="webSocketStatus">Not Connected</span></div>
-  </div>
-
-  <!-- Fixed pangrams -->
-  <div class="pangrams">
+    <!--<div><p style="color:green;">The beige hue on the waters of the loch impressed all, including the French queen, before she heard that symphony again, just as young Arthur wanted</p></div>
+      <div><p style="color:blue;">The pleasure of Shawnâ€™s company is what I most enjoy.
+      He put a tack on Ms. Yanceyâ€™s chair when she called him a horrible boy.
+      At the end of the month he was flinging two kittens across the width of the room.
+      I count on his schemes to show me a way now of getting away from my gloom.</p></div>
+      <div><p style="color:red;">Please call Stella. Ask her to bring these things with her from the store: Six spoons of fresh snow peas, five thick
+      slabs of blue cheese, and maybe a snack for her brother Bob. We also need a small plastic snake and a big toy frog for
+      the kids. She can scoop these things into three red bags, and we will go meet her Wednesday at the train station.</p></div>
+      <div><p style="color:orange;"><span style="color:blue;">I need</span> to <span style="color:blue;">write</span> the <span style="color:blue;">right</span> answer for my history test.<br>
+        <span style="color:blue;">They're</span> going to put <span style="color:blue;">their</span> dog over <span style="color:blue;">there</span>.<br><br>
+          <span style="color:blue;">I</span> <span style="color:blue;">see</span> the <span style="color:blue;">sea</span>, a <span style="color:blue;">pair</span> of <span style="color:blue;">pears</span>,<br>
+          She sells seashells by the seashore.<br>
+          I scream you scream we all scream for ice cream.<br>
+      </p></div>-->
     <div>
-      <p style="color:green; margin: 5px 0;">The beige hue on the waters of the loch impressed all, including the French
-        queen, before she heard that symphony again, just as young Arthur wanted</p>
-    </div>
-    <div>
-      <p style="color:blue; margin: 5px 0;">The pleasure of Shawn's company is what I most enjoy.
-        He put a tack on Ms. Yancey's chair when she called him a horrible boy.
-        At the end of the month he was flinging two kittens across the width of the room.
-        I count on his schemes to show me a way now of getting away from my gloom.</p>
-    </div>
-    <div>
-      <p style="color:red; margin: 5px 0;">Please call Stella. Ask her to bring these things with her from the store:
-        Six spoons of fresh snow peas, five thick
-        slabs of blue cheese, and maybe a snack for her brother Bob. We also need a small plastic snake and a big toy
-        frog for
-        the kids. She can scoop these things into three red bags, and we will go meet her Wednesday at the train
-        station.</p>
-    </div>
-    <div>
-      <p style="color:orange; margin: 5px 0;"><span style="color:blue;">I need</span> to <span
-          style="color:blue;">write</span> the <span style="color:blue;">right</span> answer for my history test.<br>
-        <span style="color:blue;">They're</span> going to put <span style="color:blue;">their</span> dog over <span
-          style="color:blue;">there</span>.<br><br>
-        <span style="color:blue;">I</span> <span style="color:blue;">see</span> the <span
-          style="color:blue;">sea</span>, a <span style="color:blue;">pair</span> of <span
-          style="color:blue;">pears</span>,<br>
-        She sells seashells by the seashore.<br>
-        I scream you scream we all scream for ice cream.<br>
+      <p><b>To start/ stop enrollment:</b> "Begin enrollment"/ "Abort enrollment"<br>
+        <b>To start/ stop voice cloning:</b> "Begin voice cloning"/ "Abort voice cloning"
       </p>
     </div>
   </div>
-
-  <!-- Scrollable transcription container (takes remaining space) -->
   <div id='transcription-container'>
     <div id='transcription'>Awaiting transcription . . .</div>
   </div>
