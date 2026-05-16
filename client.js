@@ -1,9 +1,9 @@
 //================= CONFIG =================
 // Global Variables
 //let websocket_uri = 'ws://127.0.0.1:9001';
-//let websocket_uri = 'ws://172.16.0.41:9001';
+let websocket_uri = 'ws://172.16.0.41:9001';
 
-let websocket_uri = 'ws://138.197.175.164:9001';
+//let websocket_uri = 'ws://165.227.46.0:9001';
 //common PCM sample rates are 16000, 22050, 44100
 let bufferSize = 4096,
   micAudioContext, playbackAudioContext,
@@ -13,6 +13,7 @@ let bufferSize = 4096,
   audioQueue = [],
   isPlaying = false;
 let lastChunkTime = performance.now();
+let audioStreamComplete = false;
 
 // Initialize WebSocket
 if (!websocket || websocket.readyState !== WebSocket.OPEN) {
@@ -283,8 +284,9 @@ function processAudioData(event) {
     let decodedString = textDecoder.decode(data);
     // if not PCM chunk it may be EOF signal
     if (decodedString.trim() === "EOF") {
-      console.log("End of audio stream.");
-      return; // Stop processing further
+      console.log("End of audio stream - marking stream complete");
+      audioStreamComplete = true;
+      return;
     }
 
     console.warn("Received malformed audio chunk, skipping.");
@@ -307,6 +309,13 @@ function processAudioData(event) {
 function playAudio() {
   if (audioQueue.length === 0) {
     isPlaying = false;
+
+    // Signal server if stream is complete and queue is empty
+    if (audioStreamComplete) {
+      console.log("Audio playback complete, notifying server");
+      websocket.send("AUDIO_PLAYBACK_COMPLETE");
+      audioStreamComplete = false;  // Reset for next stream
+    }
     return;
   }
 
